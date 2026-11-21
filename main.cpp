@@ -1,5 +1,6 @@
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 #include <SDL3/SDL.h>
-#include <SDL3_image/SDL_image.h>
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -37,6 +38,18 @@ struct Elf64Phdr {
     uint64_t p_memsz;
     uint64_t p_align;
 };
+
+SDL_Texture* LoadBackground(SDL_Renderer* renderer, const std::string& path) {
+    int w, h, channels;
+    unsigned char* data = stbi_load(path.c_str(), &w, &h, &channels, 4);
+    if (!data) return nullptr;
+
+    SDL_Surface* surface = SDL_CreateSurfaceFrom(w, h, SDL_PIXELFORMAT_RGBA32, data, w * 4);
+    SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
+    SDL_DestroySurface(surface);
+    stbi_image_free(data);
+    return texture;
+}
 
 void* AllocateExecMemory(size_t size) {
 #ifdef _WIN32
@@ -97,9 +110,9 @@ int main(int argc, char* argv[]) {
 
             if (event.type == SDL_EVENT_DROP_FILE) {
                 std::string dropped = event.drop.data;
-                if (dropped.ends_with(".png") || dropped.ends_with(".jpg")) {
+                if (dropped.ends_with(".png") || dropped.ends_with(".jpg") || dropped.ends_with(".jpeg")) {
                     if (bgTexture) SDL_DestroyTexture(bgTexture);
-                    bgTexture = IMG_LoadTexture(renderer, dropped.c_str());
+                    bgTexture = LoadBackground(renderer, dropped);
                 } else {
                     LoadPS5Binary(dropped);
                 }
