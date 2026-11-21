@@ -1,21 +1,19 @@
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
-#include <SDL3/SDL.h>
-#include <iostream>
+#include <windows.h>
+#include <objidl.h>
+#include <gdiplus.h>
+#include <shellapi.h>
 #include <fstream>
 #include <vector>
 #include <cstdint>
 #include <cstring>
 #include <string>
 
-#ifdef _WIN32
-#include <windows.h>
-#else
-#include <sys/mman.h>
-#endif
+#pragma comment(lib, "gdiplus.lib")
 
 struct Elf64Header {
-    uint8_t  e_ident[16];
+    uint32_t magic;
+    uint32_t ident_pad1;
+    uint64_t ident_pad2;
     uint16_t e_type;
     uint16_t e_machine;
     uint32_t e_version;
@@ -39,99 +37,113 @@ struct Elf64Phdr {
     uint64_t p_align;
 };
 
-SDL_Texture* LoadBackground(SDL_Renderer* renderer, const std::string& path) {
-    int w, h, channels;
-    unsigned char* data = stbi_load(path.c_str(), &w, &h, &channels, 4);
-    if (!data) return nullptr;
+Gdiplus::Image* g_bgImage = nullptr;
+std::wstring g_statusText = L"PS5 Compatibility Layer Ready - Drag & Drop a Wallpaper (.png/.jpg) or eboot.bin";
 
-    SDL_Surface* surface = SDL_CreateSurfaceFrom(w, h, SDL_PIXELFORMAT_RGBA32, data, w * 4);
-    SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
-    SDL_DestroySurface(surface);
-    stbi_image_free(data);
-    return texture;
-}
-
-void* AllocateExecMemory(size_t size) {
-#ifdef _WIN32
-    return VirtualAlloc(nullptr, size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-#else
-    void* ptr = mmap(nullptr, size, PROT_READ | PROT_WRITE | PROT_EXEC,
-                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    return (ptr == MAP_FAILED) ? nullptr : ptr;
-#endif
-}
-
-void LoadPS5Binary(const std::string& path) {
-    std::ifstream file(path, std::ios::binary);
+void LoadPS5Binary(const std::wstring& path) {
+    std::ifstream file(path.c_str(), std::ios::binary);
     if (!file) return;
 
     Elf64Header header{};
     file.read(reinterpret_cast<char*>(&header), sizeof(header));
 
-    if (header.e_ident[0] != 0x7F || header.e_ident[1] != 'E' ||
-        header.e_ident[2] != 'L'  || header.e_ident[3] != 'F') {
-        std::cout << "[PS5 Loader] Invalid or encrypted binary.\n";
+    if (header.magic != 0x464C457F) {
+        g_statusText = L"Error: File is not an unencrypted PS5 ELF binary.";
         return;
     }
-
-    std::cout << "[PS5 Loader] Entry Point: 0x" << std::hex << header.e_entry << "\n";
 
     file.seekg(header.e_phoff);
     std::vector<Elf64Phdr> segments(header.e_phnum);
     file.read(reinterpret_cast<char*>(segments.data()), header.e_phnum * sizeof(Elf64Phdr));
 
+    int loadedCount = 0;
     for (const auto& seg : segments) {
         if (seg.p_type == 1 && seg.p_memsz > 0) {
-            void* mem = AllocateExecMemory(seg.p_memsz);
+            void* mem = VirtualAlloc(nullptr, seg.p_memsz, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
             if (mem) {
                 std::memset(mem, 0, seg.p_memsz);
                 file.seekg(seg.p_offset);
                 file.read(reinterpret_cast<char*>(mem), seg.p_filesz);
-                std::cout << "[Memory] Loaded segment -> VAddr: 0x" << std::hex << seg.p_vaddr
-                          << " (" << std::dec << seg.p_memsz << " bytes)\n";
+                loadedCount++;
             }
         }
     }
+    g_statusText = L"Loaded PS5 Binary! Segments mapped into RAM: " + std::to_wstring(loadedCount);
 }
 
-int main(int argc, char* argv[]) {
-    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) return 1;
+LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+        case WM_DROPFILES: {
+            wchar_t filePath[MAX_PATH];
+            DragQueryFileW((HDROP)wParam, 0, filePath, MAX_PATH);
+            DragFinish((HDROP)wParam);
 
-    SDL_Window* window = SDL_CreateWindow("PS5 Compatibility Layer", 1280, 720, SDL_WINDOW_RESIZABLE);
-    SDL_Renderer* renderer = SDL_CreateRenderer(window, nullptr);
-    SDL_Texture* bgTexture = nullptr;
-
-    bool running = true;
-    SDL_Event event;
-
-    while (running) {
-        while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_EVENT_QUIT) running = false;
-
-            if (event.type == SDL_EVENT_DROP_FILE) {
-                std::string dropped = event.drop.data;
-                if (dropped.ends_with(".png") || dropped.ends_with(".jpg") || dropped.ends_with(".jpeg")) {
-                    if (bgTexture) SDL_DestroyTexture(bgTexture);
-                    bgTexture = LoadBackground(renderer, dropped);
-                } else {
-                    LoadPS5Binary(dropped);
-                }
+            std::wstring path(filePath);
+            if (path.ends_with(L".png") || path.ends_with(L".jpg") || path.ends_with(L".jpeg")) {
+                delete g_bgImage;
+                g_bgImage = new Gdiplus::Image(path.c_str());
+                g_statusText = L"Custom Background Updated!";
+            } else {
+                LoadPS5Binary(path);
             }
+            InvalidateRect(hwnd, nullptr, TRUE);
+            return 0;
         }
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC hdc = BeginPaint(hwnd, &ps);
+            RECT rect;
+            GetClientRect(hwnd, &rect);
 
-        SDL_RenderClear(renderer);
-        if (bgTexture) {
-            SDL_RenderTexture(renderer, bgTexture, nullptr, nullptr);
-        } else {
-            SDL_SetRenderDrawColor(renderer, 15, 20, 35, 255);
-            SDL_RenderFillRect(renderer, nullptr);
+            Gdiplus::Graphics graphics(hdc);
+            if (g_bgImage && g_bgImage->GetLastStatus() == Gdiplus::Ok) {
+                graphics.DrawImage(g_bgImage, 0, 0, rect.right, rect.bottom);
+            } else {
+                Gdiplus::SolidBrush bgBrush(Gdiplus::Color(255, 15, 20, 35));
+                graphics.FillRectangle(&bgBrush, 0, 0, rect.right, rect.bottom);
+            }
+
+            Gdiplus::Font font(L"Segoe UI", 16);
+            Gdiplus::SolidBrush textBrush(Gdiplus::Color(255, 240, 245, 255));
+            graphics.DrawString(g_statusText.c_str(), -1, &font, Gdiplus::PointF(30.0f, 30.0f), &textBrush);
+
+            EndPaint(hwnd, &ps);
+            return 0;
         }
-        SDL_RenderPresent(renderer);
+        case WM_DESTROY:
+            PostQuitMessage(0);
+            return 0;
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
+    Gdiplus::GdiplusStartupInput gdiplusStartupInput;
+    ULONG_PTR gdiplusToken;
+    Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, nullptr);
+
+    WNDCLASSW wc{};
+    wc.lpfnWndProc = WndProc;
+    wc.hInstance = hInstance;
+    wc.lpszClassName = L"PS5CompatLayerClass";
+    wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    RegisterClassW(&wc);
+
+    HWND hwnd = CreateWindowExW(
+        WS_EX_ACCEPTFILES, L"PS5CompatLayerClass", L"PS5 Compatibility Layer",
+        WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 1280, 720,
+        nullptr, nullptr, hInstance, nullptr
+    );
+
+    ShowWindow(hwnd, nCmdShow);
+
+    MSG msg{};
+    while (GetMessage(&msg, nullptr, 0, 0)) {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
     }
 
-    if (bgTexture) SDL_DestroyTexture(bgTexture);
-    SDL_DestroyRenderer(renderer);
-    SDL_DestroyWindow(window);
-    SDL_Quit();
+    delete g_bgImage;
+    Gdiplus::GdiplusShutdown(gdiplusToken);
     return 0;
 }
