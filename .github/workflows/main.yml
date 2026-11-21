@@ -1,0 +1,23 @@
+name: Build PS5 Emulator
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Compile Executable
+        run: cmake --build build --config Release -j
+
+      - name: Package App
+        uses: actions/upload-artifact@v4
+        with:
+          name: PS5CompatLayer-Windows
+          path: build/Release/ps5emu.exe
