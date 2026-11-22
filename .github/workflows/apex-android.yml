@@ -21,59 +21,15 @@ jobs:
           mkdir -p android-app/app/src/main/java/com/apex/ps5
           mkdir -p android-app/app/src/main/cpp
 
-          cat << 'EOF' > android-app/settings.gradle
-          rootProject.name = "ApexPS5"
-          include ':app'
-          EOF
+          printf 'rootProject.name = "ApexPS5"\ninclude ":app"\n' > android-app/settings.gradle
 
-          cat << 'EOF' > android-app/build.gradle
-          buildscript {
-              repositories { google(); mavenCentral() }
-              dependencies { classpath 'com.android.tools.build:gradle:8.2.2' }
-          }
-          allprojects {
-              repositories { google(); mavenCentral() }
-          }
-          EOF
+          printf 'buildscript {\n  repositories { google(); mavenCentral() }\n  dependencies { classpath "com.android.tools.build:gradle:8.2.2" }\n}\nallprojects {\n  repositories { google(); mavenCentral() }\n}\n' > android-app/build.gradle
 
-          cat << 'EOF' > android-app/app/build.gradle
-          plugins { id 'com.android.application' }
-          android {
-              namespace 'com.apex.ps5'
-              compileSdk 34
-              defaultConfig {
-                  applicationId "com.apex.ps5"
-                  minSdk 26
-                  targetSdk 34
-                  versionCode 1
-                  versionName "1.0"
-              }
-              externalNativeBuild {
-                  cmake { path "src/main/cpp/CMakeLists.txt" }
-              }
-          }
-          EOF
+          printf 'plugins { id "com.android.application" }\nandroid {\n  namespace "com.apex.ps5"\n  compileSdk 34\n  defaultConfig {\n    applicationId "com.apex.ps5"\n    minSdk 26\n    targetSdk 34\n    versionCode 1\n    versionName "1.0"\n  }\n  externalNativeBuild {\n    cmake { path "src/main/cpp/CMakeLists.txt" }\n  }\n}\n' > android-app/app/build.gradle
 
-          cat << 'EOF' > android-app/app/src/main/AndroidManifest.xml
-          <manifest xmlns:android="http://android.com">
-              <application android:label="ApexPS5" android:theme="@android:style/Theme.Material.NoActionBar">
-                  <activity android:name=".MainActivity" android:exported="true">
-                      <intent-filter>
-                          <action android:name="android.intent.action.MAIN" />
-                          <category android:name="android.intent.category.LAUNCHER" />
-                      </intent-filter>
-                  </activity>
-              </application>
-          </manifest>
-          EOF
+          printf '<?xml version="1.0" encoding="utf-8"?>\n<manifest xmlns:android="http://android.com">\n  <application android:label="ApexPS5" android:theme="@android:style/Theme.Material.NoActionBar">\n    <activity android:name=".MainActivity" android:exported="true">\n      <intent-filter>\n        <action android:name="android.intent.action.MAIN" />\n        <category android:name="android.intent.category.LAUNCHER" />\n      </intent-filter>\n    </activity>\n  </application>\n</manifest>\n' > android-app/app/src/main/AndroidManifest.xml
 
-          cat << 'EOF' > android-app/app/src/main/cpp/CMakeLists.txt
-          cmake_minimum_required(VERSION 3.22.1)
-          project("apexps5")
-          add_library(apexps5 SHARED native-lib.cpp)
-          find_library(log-lib log)
-          target_link_libraries(apexps5 ${log-lib})
-          EOF
+          printf 'cmake_minimum_required(VERSION 3.22.1)\nproject("apexps5")\nadd_library(apexps5 SHARED native-lib.cpp)\nfind_library(log-lib log)\ntarget_link_libraries(apexps5 ${log-lib})\n' > android-app/app/src/main/cpp/CMakeLists.txt
 
           cat << 'EOF' > android-app/app/src/main/cpp/native-lib.cpp
           #include <jni.h>
