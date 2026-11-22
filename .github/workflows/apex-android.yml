@@ -18,21 +18,66 @@ jobs:
 
       - name: Generate Native Android App
         run: |
-          mkdir -p android-app/app/src/main/java/com/apex/ps5
-          mkdir -p android-app/app/src/main/cpp
+          python3 - << 'PY'
+          import os
 
-          printf 'rootProject.name = "ApexPS5"\ninclude ":app"\n' > android-app/settings.gradle
+          os.makedirs("android-app/app/src/main/java/com/apex/ps5", exist_ok=True)
+          os.makedirs("android-app/app/src/main/cpp", exist_ok=True)
 
-          printf 'buildscript {\n  repositories { google(); mavenCentral() }\n  dependencies { classpath "com.android.tools.build:gradle:8.2.2" }\n}\nallprojects {\n  repositories { google(); mavenCentral() }\n}\n' > android-app/build.gradle
+          with open("android-app/settings.gradle", "w") as f:
+              f.write('rootProject.name = "ApexPS5"\ninclude ":app"\n')
 
-          printf 'plugins { id "com.android.application" }\nandroid {\n  namespace "com.apex.ps5"\n  compileSdk 34\n  defaultConfig {\n    applicationId "com.apex.ps5"\n    minSdk 26\n    targetSdk 34\n    versionCode 1\n    versionName "1.0"\n  }\n  externalNativeBuild {\n    cmake { path "src/main/cpp/CMakeLists.txt" }\n  }\n}\n' > android-app/app/build.gradle
+          with open("android-app/build.gradle", "w") as f:
+              f.write("""buildscript {
+              repositories { google(); mavenCentral() }
+              dependencies { classpath 'com.android.tools.build:gradle:8.2.2' }
+          }
+          allprojects {
+              repositories { google(); mavenCentral() }
+          }
+          """)
 
-          printf '<?xml version="1.0" encoding="utf-8"?>\n<manifest xmlns:android="http://android.com">\n  <application android:label="ApexPS5" android:theme="@android:style/Theme.Material.NoActionBar">\n    <activity android:name=".MainActivity" android:exported="true">\n      <intent-filter>\n        <action android:name="android.intent.action.MAIN" />\n        <category android:name="android.intent.category.LAUNCHER" />\n      </intent-filter>\n    </activity>\n  </application>\n</manifest>\n' > android-app/app/src/main/AndroidManifest.xml
+          with open("android-app/app/build.gradle", "w") as f:
+              f.write("""plugins { id 'com.android.application' }
+          android {
+              namespace 'com.apex.ps5'
+              compileSdk 34
+              defaultConfig {
+                  applicationId "com.apex.ps5"
+                  minSdk 26
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0"
+              }
+              externalNativeBuild {
+                  cmake { path "src/main/cpp/CMakeLists.txt" }
+              }
+          }
+          """)
 
-          printf 'cmake_minimum_required(VERSION 3.22.1)\nproject("apexps5")\nadd_library(apexps5 SHARED native-lib.cpp)\nfind_library(log-lib log)\ntarget_link_libraries(apexps5 ${log-lib})\n' > android-app/app/src/main/cpp/CMakeLists.txt
+          with open("android-app/app/src/main/AndroidManifest.xml", "w") as f:
+              f.write("""<manifest xmlns:android="http://android.com">
+              <application android:label="ApexPS5">
+                  <activity android:name="com.apex.ps5.MainActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          """)
 
-          cat << 'EOF' > android-app/app/src/main/cpp/native-lib.cpp
-          #include <jni.h>
+          with open("android-app/app/src/main/cpp/CMakeLists.txt", "w") as f:
+              f.write("""cmake_minimum_required(VERSION 3.22.1)
+          project("apexps5")
+          add_library(apexps5 SHARED native-lib.cpp)
+          find_library(log-lib log)
+          target_link_libraries(apexps5 ${log-lib})
+          """)
+
+          with open("android-app/app/src/main/cpp/native-lib.cpp", "w") as f:
+              f.write("""#include <jni.h>
           #include <string>
           #include <sstream>
           #include <cstdint>
@@ -53,14 +98,14 @@ jobs:
               }
 
               std::ostringstream out;
-              out << "Valid PS5 ELF Loaded!\nEntry Point: 0x" << std::hex << entry
-                  << "\nProgram Segments: " << std::dec << phnum;
+              out << "Valid PS5 ELF Loaded!\\nEntry Point: 0x" << std::hex << entry
+                  << "\\nProgram Segments: " << std::dec << phnum;
               return env->NewStringUTF(out.str().c_str());
           }
-          EOF
+          """)
 
-          cat << 'EOF' > android-app/app/src/main/java/com/apex/ps5/MainActivity.java
-          package com.apex.ps5;
+          with open("android-app/app/src/main/java/com/apex/ps5/MainActivity.java", "w") as f:
+              f.write("""package com.apex.ps5;
 
           import android.app.Activity;
           import android.content.Intent;
@@ -152,13 +197,14 @@ jobs:
                   }
               }
           }
-          EOF
+          """)
+          PY
 
       - name: Build Debug APK
         run: |
           cd android-app
           gradle wrapper --gradle-version 8.5
-          ./gradlew assembleDebug
+          ./gradlew assembleDebug --info
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
