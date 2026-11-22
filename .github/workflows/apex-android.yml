@@ -1,0 +1,214 @@
+name: Build ApexPS5 Android APK
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Generate Native Android App
+        run: |
+          mkdir -p android-app/app/src/main/java/com/apex/ps5
+          mkdir -p android-app/app/src/main/cpp
+
+          cat << 'EOF' > android-app/settings.gradle
+          rootProject.name = "ApexPS5"
+          include ':app'
+          EOF
+
+          cat << 'EOF' > android-app/build.gradle
+          buildscript {
+              repositories { google(); mavenCentral() }
+              dependencies { classpath 'com.android.tools.build:gradle:8.2.2' }
+          }
+          allprojects {
+              repositories { google(); mavenCentral() }
+          }
+          EOF
+
+          cat << 'EOF' > android-app/app/build.gradle
+          plugins { id 'com.android.application' }
+          android {
+              namespace 'com.apex.ps5'
+              compileSdk 34
+              defaultConfig {
+                  applicationId "com.apex.ps5"
+                  minSdk 26
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0"
+              }
+              externalNativeBuild {
+                  cmake { path "src/main/cpp/CMakeLists.txt" }
+              }
+          }
+          EOF
+
+          cat << 'EOF' > android-app/app/src/main/AndroidManifest.xml
+          <manifest xmlns:android="http://android.com">
+              <application android:label="ApexPS5" android:theme="@android:style/Theme.Material.NoActionBar">
+                  <activity android:name=".MainActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat << 'EOF' > android-app/app/src/main/cpp/CMakeLists.txt
+          cmake_minimum_required(VERSION 3.22.1)
+          project("apexps5")
+          add_library(apexps5 SHARED native-lib.cpp)
+          find_library(log-lib log)
+          target_link_libraries(apexps5 ${log-lib})
+          EOF
+
+          cat << 'EOF' > android-app/app/src/main/cpp/native-lib.cpp
+          #include <jni.h>
+          #include <cstdio>
+          #include <cstdint>
+
+          extern "C" JNIEXPORT jstring JNICALL
+          Java_com_apex_ps5_MainActivity_inspectBinary(JNIEnv* env, jobject, jbyteArray data) {
+              jsize len = env->GetArrayLength(data);
+              if (len < 64) return env->NewStringUTF("Error: File too small to be a PS5 ELF binary.");
+
+              jbyte* bytes = env->GetByteArrayElements(data, nullptr);
+              uint32_t magic = *reinterpret_cast<uint32_t*>(bytes);
+              uint64_t entry = *reinterpret_cast<uint64_t*>(bytes + 24);
+              uint16_t phnum = *reinterpret_cast<uint16_t*>(bytes + 56);
+              env->ReleaseByteArrayElements(data, bytes, JNI_ABORT);
+
+              if (magic != 0x464C457F) {
+                  return env->NewStringUTF("Invalid or encrypted binary (Expected unencrypted ELF).");
+              }
+
+              char buf[160];
+              snprintf(buf, sizeof(buf), "Valid PS5 ELF Loaded!\nEntry Point: 0x%llx\nProgram Segments: %u",
+                       (unsigned long long)entry, phnum);
+              return env->NewStringUTF(buf);
+          }
+          EOF
+
+          cat << 'EOF' > android-app/app/src/main/java/com/apex/ps5/MainActivity.java
+          package com.apex.ps5;
+
+          import android.app.Activity;
+          import android.content.Intent;
+          import android.graphics.Bitmap;
+          import android.graphics.BitmapFactory;
+          import android.graphics.Color;
+          import android.graphics.drawable.BitmapDrawable;
+          import android.net.Uri;
+          import android.os.Bundle;
+          import android.view.Gravity;
+          import android.widget.Button;
+          import android.widget.LinearLayout;
+          import android.widget.TextView;
+          import java.io.ByteArrayOutputStream;
+          import java.io.InputStream;
+
+          public class MainActivity extends Activity {
+              static { System.loadLibrary("apexps5"); }
+              public native String inspectBinary(byte[] data);
+
+              private LinearLayout rootLayout;
+              private TextView statusText;
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+
+                  rootLayout = new LinearLayout(this);
+                  rootLayout.setOrientation(LinearLayout.VERTICAL);
+                  rootLayout.setGravity(Gravity.CENTER);
+                  rootLayout.setBackgroundColor(Color.parseColor("#0B0F1A"));
+                  rootLayout.setPadding(48, 48, 48, 48);
+
+                  TextView title = new TextView(this);
+                  title.setText("ApexPS5");
+                  title.setTextColor(Color.WHITE);
+                  title.setTextSize(28);
+                  title.setGravity(Gravity.CENTER);
+                  rootLayout.addView(title);
+
+                  statusText = new TextView(this);
+                  statusText.setText("Ready - Select a custom wallpaper or load eboot.bin");
+                  statusText.setTextColor(Color.parseColor("#9FB3D8"));
+                  statusText.setTextSize(15);
+                  statusText.setGravity(Gravity.CENTER);
+                  statusText.setPadding(0, 24, 0, 48);
+                  rootLayout.addView(statusText);
+
+                  Button bgBtn = new Button(this);
+                  bgBtn.setText("Select Custom Background");
+                  bgBtn.setOnClickListener(v -> {
+                      Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                      intent.addCategory(Intent.CATEGORY_OPENABLE);
+                      intent.setType("image/*");
+                      startActivityForResult(intent, 101);
+                  });
+                  rootLayout.addView(bgBtn);
+
+                  Button binBtn = new Button(this);
+                  binBtn.setText("Load PS5 Binary (eboot.bin)");
+                  binBtn.setOnClickListener(v -> {
+                      Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                      intent.addCategory(Intent.CATEGORY_OPENABLE);
+                      intent.setType("*/*");
+                      startActivityForResult(intent, 102);
+                  });
+                  rootLayout.addView(binBtn);
+
+                  setContentView(rootLayout);
+              }
+
+              @Override
+              protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+                  if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
+                  Uri uri = data.getData();
+                  try (InputStream is = getContentResolver().openInputStream(uri)) {
+                      if (requestCode == 101) {
+                          Bitmap bmp = BitmapFactory.decodeStream(is);
+                          rootLayout.setBackground(new BitmapDrawable(getResources(), bmp));
+                          statusText.setText("Custom Background Updated!");
+                      } else if (requestCode == 102) {
+                          ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+                          byte[] chunk = new byte[4096];
+                          int n;
+                          while ((n = is.read(chunk)) != -1) buffer.write(chunk, 0, n);
+                          statusText.setText(inspectBinary(buffer.toByteArray()));
+                      }
+                  } catch (Exception e) {
+                      statusText.setText("Error: " + e.getMessage());
+                  }
+              }
+          }
+          EOF
+
+      - name: Build Debug APK
+        run: |
+          cd android-app
+          gradle wrapper
+          ./gradlew assembleDebug
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ApexPS5-Android-APK
+          path: android-app/app/build/outputs/apk/debug/app-debug.apk
