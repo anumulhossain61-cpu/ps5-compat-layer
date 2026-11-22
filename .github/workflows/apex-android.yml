@@ -16,9 +16,6 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Generate Native Android App
         run: |
           mkdir -p android-app/app/src/main/java/com/apex/ps5
@@ -80,7 +77,8 @@ jobs:
 
           cat << 'EOF' > android-app/app/src/main/cpp/native-lib.cpp
           #include <jni.h>
-          #include <cstdio>
+          #include <string>
+          #include <sstream>
           #include <cstdint>
 
           extern "C" JNIEXPORT jstring JNICALL
@@ -98,10 +96,10 @@ jobs:
                   return env->NewStringUTF("Invalid or encrypted binary (Expected unencrypted ELF).");
               }
 
-              char buf[160];
-              snprintf(buf, sizeof(buf), "Valid PS5 ELF Loaded!\nEntry Point: 0x%llx\nProgram Segments: %u",
-                       (unsigned long long)entry, phnum);
-              return env->NewStringUTF(buf);
+              std::ostringstream out;
+              out << "Valid PS5 ELF Loaded!\nEntry Point: 0x" << std::hex << entry
+                  << "\nProgram Segments: " << std::dec << phnum;
+              return env->NewStringUTF(out.str().c_str());
           }
           EOF
 
@@ -189,9 +187,8 @@ jobs:
                           statusText.setText("Custom Background Updated!");
                       } else if (requestCode == 102) {
                           ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-                          byte[] chunk = new byte[4096];
-                          int n;
-                          while ((n = is.read(chunk)) != -1) buffer.write(chunk, 0, n);
+                          int b;
+                          while ((b = is.read()) != -1) buffer.write(b);
                           statusText.setText(inspectBinary(buffer.toByteArray()));
                       }
                   } catch (Exception e) {
@@ -204,7 +201,7 @@ jobs:
       - name: Build Debug APK
         run: |
           cd android-app
-          gradle wrapper
+          gradle wrapper --gradle-version 8.5
           ./gradlew assembleDebug
 
       - name: Upload APK Artifact
