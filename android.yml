@@ -1,4 +1,4 @@
-name: Build ApexPS5 Android APK
+name: Build PS5 Emulator Android APK
 
 on:
   push:
@@ -18,11 +18,11 @@ jobs:
 
       - name: Generate Native Android App
         run: |
-          mkdir -p android-app/app/src/main/java/com/apex/ps5
+          mkdir -p android-app/app/src/main/java/com/ps5/compat
           mkdir -p android-app/app/src/main/cpp
 
           cat << 'EOF' > android-app/settings.gradle
-          rootProject.name = "ApexPS5"
+          rootProject.name = "PS5CompatLayer"
           include ':app'
           EOF
 
@@ -39,10 +39,10 @@ jobs:
           cat << 'EOF' > android-app/app/build.gradle
           plugins { id 'com.android.application' }
           android {
-              namespace 'com.apex.ps5'
+              namespace 'com.ps5.compat'
               compileSdk 34
               defaultConfig {
-                  applicationId "com.apex.ps5"
+                  applicationId "com.ps5.compat"
                   minSdk 26
                   targetSdk 34
                   versionCode 1
@@ -56,7 +56,7 @@ jobs:
 
           cat << 'EOF' > android-app/app/src/main/AndroidManifest.xml
           <manifest xmlns:android="http://android.com">
-              <application android:label="ApexPS5" android:theme="@android:style/Theme.Material.NoActionBar">
+              <application android:label="PS5 Compat Layer" android:theme="@android:style/Theme.Material.NoActionBar">
                   <activity android:name=".MainActivity" android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
@@ -69,10 +69,10 @@ jobs:
 
           cat << 'EOF' > android-app/app/src/main/cpp/CMakeLists.txt
           cmake_minimum_required(VERSION 3.22.1)
-          project("apexps5")
-          add_library(apexps5 SHARED native-lib.cpp)
+          project("ps5compat")
+          add_library(ps5compat SHARED native-lib.cpp)
           find_library(log-lib log)
-          target_link_libraries(apexps5 ${log-lib})
+          target_link_libraries(ps5compat ${log-lib})
           EOF
 
           cat << 'EOF' > android-app/app/src/main/cpp/native-lib.cpp
@@ -82,7 +82,7 @@ jobs:
           #include <cstdint>
 
           extern "C" JNIEXPORT jstring JNICALL
-          Java_com_apex_ps5_MainActivity_inspectBinary(JNIEnv* env, jobject, jbyteArray data) {
+          Java_com_ps5_compat_MainActivity_inspectBinary(JNIEnv* env, jobject, jbyteArray data) {
               jsize len = env->GetArrayLength(data);
               if (len < 64) return env->NewStringUTF("Error: File too small to be a PS5 ELF binary.");
 
@@ -103,8 +103,8 @@ jobs:
           }
           EOF
 
-          cat << 'EOF' > android-app/app/src/main/java/com/apex/ps5/MainActivity.java
-          package com.apex.ps5;
+          cat << 'EOF' > android-app/app/src/main/java/com/ps5/compat/MainActivity.java
+          package com.ps5.compat;
 
           import android.app.Activity;
           import android.content.Intent;
@@ -122,7 +122,7 @@ jobs:
           import java.io.InputStream;
 
           public class MainActivity extends Activity {
-              static { System.loadLibrary("apexps5"); }
+              static { System.loadLibrary("ps5compat"); }
               public native String inspectBinary(byte[] data);
 
               private LinearLayout rootLayout;
@@ -135,19 +135,19 @@ jobs:
                   rootLayout = new LinearLayout(this);
                   rootLayout.setOrientation(LinearLayout.VERTICAL);
                   rootLayout.setGravity(Gravity.CENTER);
-                  rootLayout.setBackgroundColor(Color.parseColor("#0B0F1A"));
+                  rootLayout.setBackgroundColor(Color.parseColor("#0F1423"));
                   rootLayout.setPadding(48, 48, 48, 48);
 
                   TextView title = new TextView(this);
-                  title.setText("ApexPS5");
+                  title.setText("PS5 Compatibility Layer");
                   title.setTextColor(Color.WHITE);
-                  title.setTextSize(28);
+                  title.setTextSize(24);
                   title.setGravity(Gravity.CENTER);
                   rootLayout.addView(title);
 
                   statusText = new TextView(this);
-                  statusText.setText("Ready - Select a custom wallpaper or load eboot.bin");
-                  statusText.setTextColor(Color.parseColor("#9FB3D8"));
+                  statusText.setText("Ready - Pick a custom wallpaper or load an eboot.bin");
+                  statusText.setTextColor(Color.parseColor("#A0B0D0"));
                   statusText.setTextSize(15);
                   statusText.setGravity(Gravity.CENTER);
                   statusText.setPadding(0, 24, 0, 48);
@@ -207,5 +207,5 @@ jobs:
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ApexPS5-Android-APK
+          name: PS5CompatLayer-Android-APK
           path: android-app/app/build/outputs/apk/debug/app-debug.apk
